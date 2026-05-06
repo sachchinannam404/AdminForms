@@ -1,0 +1,17 @@
+.container {
+  padding: 20px;
+  background-color: #f3f2f1;
+  border-radius: 4px;
+
+  h3 {
+    color: #323130;
+    margin-bottom: 15px;
+    font-weight: 600;
+  }
+}
+
+.buttonGroup {
+  margin-bottom: 20px;
+  display: flex;
+  gap: 10px;
+}

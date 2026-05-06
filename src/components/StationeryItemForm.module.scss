@@ -1,0 +1,52 @@
+.formContainer {
+  padding: 20px;
+  background-color: #f3f2f1;
+  border-radius: 4px;
+
+  h2 {
+    color: #323130;
+    margin-bottom: 20px;
+    font-weight: 600;
+  }
+}
+
+.fileItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background-color: #fff;
+  border: 1px solid #c8c6c4;
+  border-radius: 4px;
+  margin-bottom: 8px;
+
+  i {
+    color: #0078d4;
+  }
+
+  span {
+    font-size: 14px;
+    color: #323130;
+  }
+}
+
+.fileLink {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background-color: #e7f3ff;
+  border: 1px solid #b4d6ff;
+  border-radius: 4px;
+  text-decoration: none;
+  color: #0078d4;
+  margin-bottom: 8px;
+
+  &:hover {
+    background-color: #d0e7ff;
+  }
+
+  i {
+    color: #0078d4;
+  }
+}
