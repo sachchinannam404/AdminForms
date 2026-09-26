@@ -2,6 +2,8 @@
 
 Scalable SharePoint Framework solution for office administration: multi-type requests, dashboard, roles, bulk actions, approvals, audit, notifications, and reporting.
 
+**Full site setup (web part, lists, groups):** see **[docs/SETUP.md](docs/SETUP.md)**.
+
 ## Feature matrix
 
 | Functionality | Implementation |
@@ -36,30 +38,20 @@ Scalable SharePoint Framework solution for office administration: multi-type req
 
 ```
 src/
-├── models/          # IAdminRequest, IChildItem, enums, IAttachment
-├── config/          # requestTypeRegistry (schemas + thresholds)
+├── webparts/adminForms/     # SPFx web part → AdminFormsApp + spfxContext
+├── models/
+├── config/requestTypeRegistry.ts
 ├── services/
-│   ├── SharePointRepository.ts
-│   ├── RequestService.ts      # CRUD, bulk, KPIs
+│   ├── RequestService.ts
+│   ├── SiteProvisioningService.ts   # lists, columns, groups
 │   ├── RoleService.ts
-│   ├── NotificationService.ts
-│   ├── AuditService.ts
-│   ├── ReportingService.ts
-│   └── attachmentService.ts
-├── components/
-│   ├── AdminFormsApp.tsx
-│   ├── dashboard/RequestsDashboard.tsx
-│   ├── forms/DynamicRequestForm.tsx
-│   ├── lists/ChildItemsList.tsx
-│   ├── workflow/ApprovalPanel.tsx, AuditHistory.tsx
-│   └── reporting/ReportingPanel.tsx
+│   └── ...
+├── components/AdminFormsApp.tsx
+scripts/Provision-AdminForms.ps1     # PnP PowerShell provisioning
+docs/SETUP.md
 ```
 
-## Prerequisites
-
-- Node.js 14+ / SPFx 1.16 / SharePoint Online
-
-## Installation
+## Quick start
 
 ```bash
 git clone https://github.com/sachchinannam404/AdminForms.git
@@ -67,59 +59,57 @@ cd AdminForms
 npm install
 ```
 
-## SharePoint setup
+### 1. Web part (already wired)
 
-### Admin Requests (parent)
-
-Required columns: Title, Description, **RequestType** (Choice), RequesterName, RequesterEmail, Department, Status, Priority, TargetDeliveryDate, ApprovedBy, ApprovedDate, RejectionReason, TotalBudget, Comments, **DetailsJson** (multi-line text).
-
-Enable **versioning** for audit history.
-
-### Child lists (as needed)
-
-Stationery Items, IT Equipment Items, Travel Items, Facilities Items, Procurement Items – same core columns (RequestId, ItemName, Category, Quantity, Unit, UnitPrice, TotalPrice, Description, Status, Vendor*, dates, Remarks, **ExtraJson**).
-
-### Security groups (optional)
-
-- `Admin Forms Approvers` → Approver view + bulk actions  
-- `Admin Forms Admins` → Admin role  
-
-### Power Automate (optional)
-
-1. Create a flow with **When an HTTP request is received**.
-2. Pass the URL into the web part:
+`src/webparts/adminForms/AdminFormsWebPart.ts` initializes PnP with `this.context` and renders:
 
 ```tsx
-RequestService.initialize(this.context);
 <AdminFormsApp
+  spfxContext={this.context}
   currentUserName={this.context.pageContext.user.displayName}
   currentUserEmail={this.context.pageContext.user.email}
-  powerAutomateWebhookUrl="https://prod-....logic.azure.com/workflows/..."
+  powerAutomateWebhookUrl={this.properties.powerAutomateWebhookUrl}
 />
 ```
 
-Payload events: `AdminRequestStatusChanged`, `AdminRequestBulkStatusChanged`.
+Property pane: webhook URL + **Ensure lists & groups on load**.
 
-## Web part usage
+### 2. Lists & columns
 
-```tsx
-import { AdminFormsApp } from './components/AdminFormsApp';
-import { RequestService } from './services/RequestService';
+**Option A – in browser (site owner):** enable web part toggle *Ensure lists & groups on load*.
 
-RequestService.initialize(this.context);
+**Option B – PowerShell:**
 
-<AdminFormsApp
-  currentUserName={this.context.pageContext.user.displayName}
-  currentUserEmail={this.context.pageContext.user.email}
-/>
+```powershell
+Connect-PnPOnline -Url "https://tenant.sharepoint.com/sites/YourSite" -Interactive
+.\scripts\Provision-AdminForms.ps1
 ```
 
-## Adding a new request type
+Creates **Admin Requests** (with **RequestType**, **DetailsJson**, versioning) and child lists (Stationery, IT Equipment, Travel, Facilities, Procurement Items).
 
-1. Add `RequestType` enum value.  
-2. Register in `requestTypeRegistry.ts` (fields, optional child list, `approvalThreshold`).  
-3. Create lists if needed.  
-4. No new form components required.
+### 3. Groups
+
+Provisioning creates:
+
+- **Admin Forms Approvers** – approve / bulk / “All requests” view  
+- **Admin Forms Admins** – admin role  
+
+Add members via Site settings → People and groups, or:
+
+```powershell
+Add-PnPGroupMember -Identity "Admin Forms Approvers" -LoginName "user@contoso.com"
+```
+
+### 4. Deploy
+
+```bash
+gulp bundle --ship
+gulp package-solution --ship
+```
+
+Deploy `sharepoint/solution/admin-forms.sppkg` to the App Catalog, add **Admin Forms** to a page.
+
+> If gulp/config scaffold is incomplete in a clone, use a standard SPFx 1.16 project and merge this `src/` (see [docs/SETUP.md](docs/SETUP.md)).
 
 ## Development
 
