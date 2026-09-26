@@ -1,6 +1,12 @@
 /**
- * Stationery Item Model - Child Form
+ * Stationery Item Model - Child Form (backward compatible)
+ * Prefer IChildItem + RequestType.Stationery for new code.
  */
+
+import { IAttachment } from './common/IAttachment';
+import { ItemStatus } from './common/enums';
+
+export { ItemStatus };
 
 export enum ItemCategory {
   Paper = 'Paper',
@@ -10,22 +16,6 @@ export enum ItemCategory {
   Tape = 'Tape',
   Ink = 'Ink',
   Other = 'Other'
-}
-
-export enum ItemStatus {
-  Pending = 'Pending',
-  Ordered = 'Ordered',
-  InStock = 'InStock',
-  Delivered = 'Delivered'
-}
-
-export interface IAttachment {
-  id: string;
-  fileName: string;
-  fileUrl: string;
-  fileSize: number;
-  uploadedBy: string;
-  uploadedDate: Date;
 }
 
 export interface IStationeryItem {

@@ -1,203 +1,159 @@
-# Admin Forms SPFx Solution
+# Admin Forms SPFx Solution (v2 – Scalable)
 
-A comprehensive SharePoint Framework (SPFx) solution with parent and child forms for managing admin requests and stationery items with full attachment support.
+A **scalable** SharePoint Framework (SPFx) solution for office administration: multi-type requests, config-driven forms, dashboard, approval workflow, and line items.
+
+## Request types (out of the box)
+
+| Type | Description | Line items |
+|------|-------------|------------|
+| **Stationery** | Office supplies | Yes |
+| **IT Equipment** | Laptops, monitors, phones, etc. | Yes |
+| **Travel** | Trips, flights, hotels, per-diem | Yes |
+| **Leave** | Annual / sick / personal time off | No |
+| **Facilities** | Maintenance, HVAC, furniture | Yes |
+| **Procurement** | POs and vendor purchases | Yes |
+| **General** | Catch-all admin requests | No |
+
+Add a new type by registering it in `src/config/requestTypeRegistry.ts` (no new form components required for most cases).
+
+## Architecture
+
+```
+src/
+├── models/
+│   ├── common/           # IAttachment, enums
+│   ├── IAdminRequest.ts  # Base request + filters
+│   ├── IChildItem.ts     # Generic line item
+│   └── IStationeryItem.ts# Legacy stationery model
+├── config/
+│   └── requestTypeRegistry.ts   # Types, lists, form schemas
+├── services/
+│   ├── SharePointRepository.ts  # Generic list CRUD
+│   ├── RequestService.ts        # High-level API
+│   ├── attachmentService.ts
+│   └── sharePointService.ts     # Backward-compatible wrapper
+├── components/
+│   ├── AdminFormsApp.tsx        # Shell: dashboard ↔ form ↔ detail
+│   ├── dashboard/RequestsDashboard.tsx
+│   ├── forms/DynamicRequestForm.tsx
+│   ├── workflow/ApprovalPanel.tsx
+│   ├── lists/ChildItemsList.tsx
+│   └── (legacy) AdminRequestForm, StationeryItem*
+```
 
 ## Features
 
-- **Parent Form (Admin Request)**
-  - Create and manage admin requests
-  - Track request status and priority
-  - Assign budgets and delivery dates
-  - Add attachments (documents, images, etc.)
-  - Approval workflow support
-
-- **Child Form (Stationery Items)**
-  - Manage stationery items linked to admin requests
-  - Track item categories, quantities, and pricing
-  - Monitor item status and delivery dates
-  - Add vendor information
-  - Support for multiple attachments per item
-
-- **Common Features**
-  - Full CRUD operations via SharePoint REST API
-  - File attachment management
-  - Responsive UI with Fluent UI components
-  - Error handling and validation
-  - Loading states and user feedback
+- **Dashboard** – KPIs, search, filter by status / type / priority
+- **Config-driven forms** – fields defined in the registry
+- **Approval panel** – Approve / Reject with comments
+- **Child line items** – per request type (stationery, IT, travel, etc.)
+- **Attachments** – on parent requests (and extendable to children)
+- **Generic repository** – one pattern for all SharePoint lists
+- **Backward compatible** – existing Stationery forms still work via `SharePointService`
 
 ## Prerequisites
 
 - Node.js 14.x or higher
 - SharePoint Framework v1.16.0
-- SharePoint Online tenant
-- Office 365 subscription
-- Visual Studio Code or preferred TypeScript IDE
+- SharePoint Online tenant / Office 365
 
 ## Installation
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/sachchinannam404/AdminForms.git
-   cd AdminForms
-   ```
-
-2. **Install dependencies**
-   ```bash
-   npm install
-   ```
-
-3. **Install SharePoint Framework CLI**
-   ```bash
-   npm install -g @microsoft/sharepoint-cli
-   ```
-
-## Project Structure
-
-```
-src/
-├── models/
-│   ├── IAdminRequest.ts      # Admin Request model
-│   └── IStationeryItem.ts    # Stationery Item model
-├── services/
-│   ├── sharePointService.ts  # SharePoint CRUD operations
-│   └── attachmentService.ts  # File attachment handling
-├── components/
-│   ├── AdminRequestForm.tsx          # Parent form component
-│   ├── AdminRequestForm.module.scss  # Parent form styles
-│   ├── StationeryItemsList.tsx       # Child items list
-│   ├── StationeryItemsList.module.scss
-│   ├── StationeryItemForm.tsx        # Child form component
-│   └── StationeryItemForm.module.scss
-└── webparts/
-    └── AdminFormWebPart/
-        ├── AdminFormWebPart.tsx
-        └── IAdminFormWebPartProps.ts
+```bash
+git clone https://github.com/sachchinannam404/AdminForms.git
+cd AdminForms
+npm install
+npm install -g @microsoft/sharepoint-cli   # optional
 ```
 
-## SharePoint Lists Setup
+## SharePoint lists setup
 
-You need to create two SharePoint lists:
+### 1. Admin Requests (parent – shared by all types)
 
-### 1. Admin Requests List
+| Column | Type | Notes |
+|--------|------|--------|
+| Title | Single line text | |
+| Description | Multiple lines | |
+| **RequestType** | Choice | Stationery, ITEquipment, Travel, Leave, Facilities, Procurement, General |
+| RequesterName | Single line text | |
+| RequesterEmail | Single line text | |
+| Department | Single line text | |
+| Status | Choice | Draft, Pending, Approved, Rejected, InProgress, Completed, Cancelled |
+| Priority | Choice | Low, Medium, High, Urgent |
+| TargetDeliveryDate | Date and Time | |
+| ApprovedBy | Single line text (or Person) | |
+| ApprovedDate | Date and Time | |
+| RejectionReason | Multiple lines | |
+| TotalBudget | Currency | |
+| Comments | Multiple lines | |
+| **DetailsJson** | Multiple lines (plain) | JSON for type-specific fields |
 
-Columns:
-- **Title** (Single line text) - Request title
-- **Description** (Multiple lines text) - Detailed description
-- **RequesterName** (Single line text) - Name of requester
-- **RequesterEmail** (Single line text) - Email of requester
-- **Department** (Single line text) - Department name
-- **Status** (Choice) - Pending, Approved, Rejected, InProgress, Completed
-- **Priority** (Choice) - Low, Medium, High, Urgent
-- **TargetDeliveryDate** (Date and Time) - Expected delivery date
-- **ApprovedBy** (Person or Group) - Approver name
-- **ApprovedDate** (Date and Time) - Approval date
-- **RejectionReason** (Multiple lines text) - Reason for rejection
-- **TotalBudget** (Currency) - Budget amount
-- **Comments** (Multiple lines text) - Additional comments
+### 2. Child lists (create as needed)
 
-### 2. Stationery Items List
+Use the same column set for: **Stationery Items**, **IT Equipment Items**, **Travel Items**, **Facilities Items**, **Procurement Items**:
 
-Columns:
-- **RequestId** (Single line text) - Link to Admin Request
-- **ItemName** (Single line text) - Item name
-- **Category** (Choice) - Paper, Pens, Notebooks, Folders, Tape, Ink, Other
-- **Quantity** (Number) - Item quantity
-- **Unit** (Single line text) - Unit type (pcs, ream, box, etc.)
-- **UnitPrice** (Currency) - Price per unit
-- **TotalPrice** (Currency) - Total cost
-- **Description** (Multiple lines text) - Item description
-- **Status** (Choice) - Pending, Ordered, InStock, Delivered
-- **VendorName** (Single line text) - Supplier name
-- **VendorEmail** (Single line text) - Supplier email
-- **ExpectedDeliveryDate** (Date and Time) - Expected delivery
-- **ActualDeliveryDate** (Date and Time) - Actual delivery
-- **Remarks** (Multiple lines text) - Additional notes
+| Column | Type |
+|--------|------|
+| RequestId | Single line text |
+| ItemName | Single line text |
+| Category | Single line text or Choice |
+| Quantity | Number |
+| Unit | Single line text |
+| UnitPrice | Currency |
+| TotalPrice | Currency |
+| Description | Multiple lines |
+| Status | Choice (Pending, Ordered, InStock, Delivered, Cancelled) |
+| VendorName | Single line text |
+| VendorEmail | Single line text |
+| ExpectedDeliveryDate | Date and Time |
+| ActualDeliveryDate | Date and Time |
+| Remarks | Multiple lines |
+| ExtraJson | Multiple lines (optional JSON) |
+
+Leave and General types do not require a child list.
+
+## Usage in a web part
+
+```tsx
+import { AdminFormsApp } from './components/AdminFormsApp';
+import { RequestService } from './services/RequestService';
+
+// In web part onInit / render:
+RequestService.initialize(this.context);
+
+// Render:
+<AdminFormsApp
+  currentUserName={this.context.pageContext.user.displayName}
+  currentUserEmail={this.context.pageContext.user.email}
+/>
+```
+
+## Adding a new request type
+
+1. Add an enum value in `src/models/common/enums.ts` (`RequestType`).
+2. Add a full entry in `src/config/requestTypeRegistry.ts` (display name, form fields, optional child list + child fields).
+3. Create the SharePoint list(s) if you use children.
+4. No new React form required – `DynamicRequestForm` and `ChildItemsList` pick up the config.
 
 ## Development
 
-1. **Start the local development server**
-   ```bash
-   npm run serve
-   ```
-
-2. **Build the solution**
-   ```bash
-   npm run build
-   ```
-
-3. **Bundle for production**
-   ```bash
-   npm run bundle
-   ```
-
-4. **Package the solution**
-   ```bash
-   npm run package-solution
-   ```
-
-## Usage
-
-### Creating an Admin Request
-
-1. Open the Admin Request Form
-2. Fill in the required fields (Title, Description)
-3. Add optional details (Budget, Delivery Date, etc.)
-4. Attach supporting documents
-5. Click "Save"
-
-### Managing Stationery Items
-
-1. Open the Admin Request
-2. Navigate to the Stationery Items section
-3. Click "Add Item" to create a new item
-4. Fill in item details
-5. Add attachments if needed
-6. Save the item
-
-## API Integration
-
-The solution uses PnP/sp library for SharePoint REST API operations:
-
-```typescript
-// Example: Create Admin Request
-const request = await SharePointService.createAdminRequest({
-  title: 'Office Supplies Request',
-  description: 'Need office supplies for Q2',
-  requesterName: 'John Doe',
-  requesterEmail: 'john@contoso.com'
-});
-
-// Example: Upload Attachment
-const attachment = await AttachmentService.uploadRequestAttachment(
-  requestId,
-  file
-);
+```bash
+npm run serve
+npm run build
+npm run bundle
+npm run package-solution
 ```
 
-## Troubleshooting
+## Migration from v1
 
-### SharePoint Lists Not Found
-- Verify list names exactly match: "Admin Requests" and "Stationery Items"
-- Check that lists are created in the same site where the web part is deployed
-
-### Attachment Upload Fails
-- Ensure user has Edit permissions on the SharePoint list
-- Check file size limits (SharePoint default: 250MB)
-- Verify file type is not blocked by organization policies
-
-### Form Not Loading
-- Check browser console for error messages
-- Verify PnP/sp is properly initialized with context
-- Ensure SharePoint list columns match the model definitions
-
-## Contributing
-
-Feel free to submit issues and enhancement requests!
+- Existing **Admin Requests** / **Stationery Items** lists still work.
+- Add columns **RequestType** and **DetailsJson** on Admin Requests (default RequestType = Stationery for old items).
+- Prefer `RequestService` and `AdminFormsApp` for new UI; legacy `AdminRequestForm` / `StationeryItemsList` remain available.
 
 ## License
 
-MIT License - see LICENSE file for details
+MIT License
 
 ## Support
 
-For issues, questions, or suggestions, please create an issue in the GitHub repository.
+Open an issue on the GitHub repository for questions or enhancements.
