@@ -1,61 +1,63 @@
-# Admin Forms SPFx Solution (v2 – Scalable)
+# Admin Forms SPFx Solution (v2 – Full office admin suite)
 
-A **scalable** SharePoint Framework (SPFx) solution for office administration: multi-type requests, config-driven forms, dashboard, approval workflow, and line items.
+Scalable SharePoint Framework solution for office administration: multi-type requests, dashboard, roles, bulk actions, approvals, audit, notifications, and reporting.
 
-## Request types (out of the box)
+## Feature matrix
 
-| Type | Description | Line items |
-|------|-------------|------------|
-| **Stationery** | Office supplies | Yes |
-| **IT Equipment** | Laptops, monitors, phones, etc. | Yes |
-| **Travel** | Trips, flights, hotels, per-diem | Yes |
-| **Leave** | Annual / sick / personal time off | No |
-| **Facilities** | Maintenance, HVAC, furniture | Yes |
-| **Procurement** | POs and vendor purchases | Yes |
-| **General** | Catch-all admin requests | No |
+| Functionality | Implementation |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| **Dashboard** | `RequestsDashboard` – DetailsList, filters (status, type, department, date range, search), KPIs (Pending / Overdue / Budget) |
+| **IT Equipment** | Registry + child list – asset type, specs, **serial**, **warranty** months/expiry |
+| **Travel / Expense** | Child items (flights, hotels, per-diem); **estimated vs actual** cost on parent and lines |
+| **Leave / Time-off** | Date range, leave type, **leave balance** + days requested (Graph-ready) |
+| **Facilities / Maintenance** | Location, urgency/priority, **assigned technician**; photos via request attachments |
+| **Procurement / PO** | Vendor, PO number, contract ref, **approval threshold** + dual-approval flag |
+| **Approval workflow UI** | `ApprovalPanel` – Approve / Reject + comments; **Power Automate webhook** via `NotificationService` |
+| **Role-based views** | `RoleService` – SharePoint groups; **My requests** / **All** / **Pending approval** pivots |
+| **Search & advanced filter** | PnP OData filter + client search; department & date range |
+| **Bulk actions** | Multi-select + bulk status update (approvers) |
+| **Notifications** | Power Automate HTTP webhook on status/bulk change (`NotificationService`) |
+| **Audit / history** | `AuditHistory` + `AuditService` – SharePoint **versioning** diffs |
+| **Reporting** | `ReportingPanel` – summary stats, simple bar charts, **CSV export** |
 
-Add a new type by registering it in `src/config/requestTypeRegistry.ts` (no new form components required for most cases).
+## Request types
+
+| Type | Line items | Notes |
+|------|------------|--------|
+| Stationery | Yes | Consumables |
+| IT Equipment | Yes | Serial, warranty, specs |
+| Travel | Yes | Budget vs actual |
+| Leave | No | Balance field for Graph later |
+| Facilities | Yes | Technician, location |
+| Procurement | Yes | Threshold / dual approval |
+| General | No | Catch-all |
 
 ## Architecture
 
 ```
 src/
-├── models/
-│   ├── common/           # IAttachment, enums
-│   ├── IAdminRequest.ts  # Base request + filters
-│   ├── IChildItem.ts     # Generic line item
-│   └── IStationeryItem.ts# Legacy stationery model
-├── config/
-│   └── requestTypeRegistry.ts   # Types, lists, form schemas
+├── models/          # IAdminRequest, IChildItem, enums, IAttachment
+├── config/          # requestTypeRegistry (schemas + thresholds)
 ├── services/
-│   ├── SharePointRepository.ts  # Generic list CRUD
-│   ├── RequestService.ts        # High-level API
-│   ├── attachmentService.ts
-│   └── sharePointService.ts     # Backward-compatible wrapper
+│   ├── SharePointRepository.ts
+│   ├── RequestService.ts      # CRUD, bulk, KPIs
+│   ├── RoleService.ts
+│   ├── NotificationService.ts
+│   ├── AuditService.ts
+│   ├── ReportingService.ts
+│   └── attachmentService.ts
 ├── components/
-│   ├── AdminFormsApp.tsx        # Shell: dashboard ↔ form ↔ detail
+│   ├── AdminFormsApp.tsx
 │   ├── dashboard/RequestsDashboard.tsx
 │   ├── forms/DynamicRequestForm.tsx
-│   ├── workflow/ApprovalPanel.tsx
 │   ├── lists/ChildItemsList.tsx
-│   └── (legacy) AdminRequestForm, StationeryItem*
+│   ├── workflow/ApprovalPanel.tsx, AuditHistory.tsx
+│   └── reporting/ReportingPanel.tsx
 ```
-
-## Features
-
-- **Dashboard** – KPIs, search, filter by status / type / priority
-- **Config-driven forms** – fields defined in the registry
-- **Approval panel** – Approve / Reject with comments
-- **Child line items** – per request type (stationery, IT, travel, etc.)
-- **Attachments** – on parent requests (and extendable to children)
-- **Generic repository** – one pattern for all SharePoint lists
-- **Backward compatible** – existing Stationery forms still work via `SharePointService`
 
 ## Prerequisites
 
-- Node.js 14.x or higher
-- SharePoint Framework v1.16.0
-- SharePoint Online tenant / Office 365
+- Node.js 14+ / SPFx 1.16 / SharePoint Online
 
 ## Installation
 
@@ -63,65 +65,49 @@ src/
 git clone https://github.com/sachchinannam404/AdminForms.git
 cd AdminForms
 npm install
-npm install -g @microsoft/sharepoint-cli   # optional
 ```
 
-## SharePoint lists setup
+## SharePoint setup
 
-### 1. Admin Requests (parent – shared by all types)
+### Admin Requests (parent)
 
-| Column | Type | Notes |
-|--------|------|--------|
-| Title | Single line text | |
-| Description | Multiple lines | |
-| **RequestType** | Choice | Stationery, ITEquipment, Travel, Leave, Facilities, Procurement, General |
-| RequesterName | Single line text | |
-| RequesterEmail | Single line text | |
-| Department | Single line text | |
-| Status | Choice | Draft, Pending, Approved, Rejected, InProgress, Completed, Cancelled |
-| Priority | Choice | Low, Medium, High, Urgent |
-| TargetDeliveryDate | Date and Time | |
-| ApprovedBy | Single line text (or Person) | |
-| ApprovedDate | Date and Time | |
-| RejectionReason | Multiple lines | |
-| TotalBudget | Currency | |
-| Comments | Multiple lines | |
-| **DetailsJson** | Multiple lines (plain) | JSON for type-specific fields |
+Required columns: Title, Description, **RequestType** (Choice), RequesterName, RequesterEmail, Department, Status, Priority, TargetDeliveryDate, ApprovedBy, ApprovedDate, RejectionReason, TotalBudget, Comments, **DetailsJson** (multi-line text).
 
-### 2. Child lists (create as needed)
+Enable **versioning** for audit history.
 
-Use the same column set for: **Stationery Items**, **IT Equipment Items**, **Travel Items**, **Facilities Items**, **Procurement Items**:
+### Child lists (as needed)
 
-| Column | Type |
-|--------|------|
-| RequestId | Single line text |
-| ItemName | Single line text |
-| Category | Single line text or Choice |
-| Quantity | Number |
-| Unit | Single line text |
-| UnitPrice | Currency |
-| TotalPrice | Currency |
-| Description | Multiple lines |
-| Status | Choice (Pending, Ordered, InStock, Delivered, Cancelled) |
-| VendorName | Single line text |
-| VendorEmail | Single line text |
-| ExpectedDeliveryDate | Date and Time |
-| ActualDeliveryDate | Date and Time |
-| Remarks | Multiple lines |
-| ExtraJson | Multiple lines (optional JSON) |
+Stationery Items, IT Equipment Items, Travel Items, Facilities Items, Procurement Items – same core columns (RequestId, ItemName, Category, Quantity, Unit, UnitPrice, TotalPrice, Description, Status, Vendor*, dates, Remarks, **ExtraJson**).
 
-Leave and General types do not require a child list.
+### Security groups (optional)
 
-## Usage in a web part
+- `Admin Forms Approvers` → Approver view + bulk actions  
+- `Admin Forms Admins` → Admin role  
+
+### Power Automate (optional)
+
+1. Create a flow with **When an HTTP request is received**.
+2. Pass the URL into the web part:
+
+```tsx
+RequestService.initialize(this.context);
+<AdminFormsApp
+  currentUserName={this.context.pageContext.user.displayName}
+  currentUserEmail={this.context.pageContext.user.email}
+  powerAutomateWebhookUrl="https://prod-....logic.azure.com/workflows/..."
+/>
+```
+
+Payload events: `AdminRequestStatusChanged`, `AdminRequestBulkStatusChanged`.
+
+## Web part usage
 
 ```tsx
 import { AdminFormsApp } from './components/AdminFormsApp';
 import { RequestService } from './services/RequestService';
 
-// In web part onInit / render:
 RequestService.initialize(this.context);
 
-// Render:
 <AdminFormsApp
   currentUserName={this.context.pageContext.user.displayName}
   currentUserEmail={this.context.pageContext.user.email}
@@ -130,30 +116,19 @@ RequestService.initialize(this.context);
 
 ## Adding a new request type
 
-1. Add an enum value in `src/models/common/enums.ts` (`RequestType`).
-2. Add a full entry in `src/config/requestTypeRegistry.ts` (display name, form fields, optional child list + child fields).
-3. Create the SharePoint list(s) if you use children.
-4. No new React form required – `DynamicRequestForm` and `ChildItemsList` pick up the config.
+1. Add `RequestType` enum value.  
+2. Register in `requestTypeRegistry.ts` (fields, optional child list, `approvalThreshold`).  
+3. Create lists if needed.  
+4. No new form components required.
 
 ## Development
 
 ```bash
 npm run serve
 npm run build
-npm run bundle
 npm run package-solution
 ```
 
-## Migration from v1
-
-- Existing **Admin Requests** / **Stationery Items** lists still work.
-- Add columns **RequestType** and **DetailsJson** on Admin Requests (default RequestType = Stationery for old items).
-- Prefer `RequestService` and `AdminFormsApp` for new UI; legacy `AdminRequestForm` / `StationeryItemsList` remain available.
-
 ## License
 
-MIT License
-
-## Support
-
-Open an issue on the GitHub repository for questions or enhancements.
+MIT
