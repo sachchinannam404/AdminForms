@@ -3,28 +3,66 @@
  */
 
 import { SharePointRepository } from './SharePointRepository';
-import { IAdminRequest, IAdminRequestFilter, RequestStatus, PriorityLevel, RequestType } from '../models/IAdminRequest';
+import {
+  IAdminRequest,
+  IAdminRequestFilter,
+  RequestStatus,
+  PriorityLevel,
+  RequestType
+} from '../models/IAdminRequest';
 import { IChildItem } from '../models/IChildItem';
 import { ItemStatus } from '../models/common/enums';
 import { getRequestTypeConfig } from '../config/requestTypeRegistry';
+import { NotificationService } from './NotificationService';
 
 const PARENT_SELECT = [
-  'ID', 'Title', 'Description', 'RequestType', 'RequesterName', 'RequesterEmail',
-  'Department', 'Status', 'Priority', 'TargetDeliveryDate', 'ApprovedBy', 'ApprovedDate',
-  'RejectionReason', 'TotalBudget', 'Comments', 'DetailsJson', 'Created', 'Modified'
+  'ID',
+  'Title',
+  'Description',
+  'RequestType',
+  'RequesterName',
+  'RequesterEmail',
+  'Department',
+  'Status',
+  'Priority',
+  'TargetDeliveryDate',
+  'ApprovedBy',
+  'ApprovedDate',
+  'RejectionReason',
+  'TotalBudget',
+  'Comments',
+  'DetailsJson',
+  'Created',
+  'Modified'
 ];
 
 const CHILD_SELECT = [
-  'ID', 'RequestId', 'ItemName', 'Category', 'Quantity', 'Unit', 'UnitPrice', 'TotalPrice',
-  'Description', 'Status', 'VendorName', 'VendorEmail', 'ExpectedDeliveryDate',
-  'ActualDeliveryDate', 'Remarks', 'ExtraJson', 'Created', 'Modified'
+  'ID',
+  'RequestId',
+  'ItemName',
+  'Category',
+  'Quantity',
+  'Unit',
+  'UnitPrice',
+  'TotalPrice',
+  'Description',
+  'Status',
+  'VendorName',
+  'VendorEmail',
+  'ExpectedDeliveryDate',
+  'ActualDeliveryDate',
+  'Remarks',
+  'ExtraJson',
+  'Created',
+  'Modified'
 ];
 
 function mapAdminRequest(item: any): IAdminRequest {
   let details: Record<string, any> | undefined;
   if (item.DetailsJson) {
     try {
-      details = typeof item.DetailsJson === 'string' ? JSON.parse(item.DetailsJson) : item.DetailsJson;
+      details =
+        typeof item.DetailsJson === 'string' ? JSON.parse(item.DetailsJson) : item.DetailsJson;
     } catch {
       details = undefined;
     }
@@ -80,6 +118,7 @@ function mapChildItem(item: any): IChildItem {
       extra = undefined;
     }
   }
+  // Promote known extra keys from form (serial, warranty, actualAmount) stored in ExtraJson
   return {
     id: item.ID?.toString(),
     requestId: item.RequestId,
@@ -93,7 +132,9 @@ function mapChildItem(item: any): IChildItem {
     status: item.Status || ItemStatus.Pending,
     vendorName: item.VendorName,
     vendorEmail: item.VendorEmail,
-    expectedDeliveryDate: item.ExpectedDeliveryDate ? new Date(item.ExpectedDeliveryDate) : undefined,
+    expectedDeliveryDate: item.ExpectedDeliveryDate
+      ? new Date(item.ExpectedDeliveryDate)
+      : undefined,
     actualDeliveryDate: item.ActualDeliveryDate ? new Date(item.ActualDeliveryDate) : undefined,
     remarks: item.Remarks,
     extra,
@@ -102,7 +143,7 @@ function mapChildItem(item: any): IChildItem {
   };
 }
 
-function mapToSharePointChild(entity: Partial<IChildItem>): Record<string, any> {
+function mapToSharePointChild(entity: Partial<IChildItem> & Record<string, any>): Record<string, any> {
   const data: Record<string, any> = {};
   if (entity.requestId !== undefined) data.RequestId = entity.requestId;
   if (entity.itemName !== undefined) data.ItemName = entity.itemName;
@@ -115,10 +156,27 @@ function mapToSharePointChild(entity: Partial<IChildItem>): Record<string, any> 
   if (entity.status !== undefined) data.Status = entity.status;
   if (entity.vendorName !== undefined) data.VendorName = entity.vendorName;
   if (entity.vendorEmail !== undefined) data.VendorEmail = entity.vendorEmail;
-  if (entity.expectedDeliveryDate !== undefined) data.ExpectedDeliveryDate = entity.expectedDeliveryDate;
+  if (entity.expectedDeliveryDate !== undefined)
+    data.ExpectedDeliveryDate = entity.expectedDeliveryDate;
   if (entity.actualDeliveryDate !== undefined) data.ActualDeliveryDate = entity.actualDeliveryDate;
   if (entity.remarks !== undefined) data.Remarks = entity.remarks;
-  if (entity.extra !== undefined) data.ExtraJson = JSON.stringify(entity.extra || {});
+
+  // Fold non-standard form fields into ExtraJson
+  const known =
+    'requestId|itemName|category|quantity|unit|unitPrice|totalPrice|description|status|vendorName|vendorEmail|expectedDeliveryDate|actualDeliveryDate|remarks|extra|id|attachments|created|modified'.split(
+      '|'
+    );
+  const extra: Record<string, any> = { ...(entity.extra || {}) };
+  Object.keys(entity).forEach((k) => {
+    if (!known.includes(k) && entity[k] !== undefined) {
+      extra[k] = entity[k];
+    }
+  });
+  if (Object.keys(extra).length) {
+    data.ExtraJson = JSON.stringify(extra);
+  } else if (entity.extra !== undefined) {
+    data.ExtraJson = JSON.stringify(entity.extra || {});
+  }
   return data;
 }
 
@@ -140,13 +198,16 @@ export class RequestService {
     if (!this.childRepos.has(listTitle)) {
       this.childRepos.set(
         listTitle,
-        new SharePointRepository<IChildItem>(listTitle, mapChildItem, mapToSharePointChild, CHILD_SELECT)
+        new SharePointRepository<IChildItem>(
+          listTitle,
+          mapChildItem,
+          mapToSharePointChild,
+          CHILD_SELECT
+        )
       );
     }
     return this.childRepos.get(listTitle)!;
   }
-
-  // ---------- Parent requests ----------
 
   public static async createRequest(request: Partial<IAdminRequest>): Promise<IAdminRequest> {
     const config = getRequestTypeConfig(request.requestType || RequestType.General);
@@ -216,7 +277,8 @@ export class RequestService {
         (r) =>
           (r.title && r.title.toLowerCase().includes(q)) ||
           (r.description && r.description.toLowerCase().includes(q)) ||
-          (r.requesterName && r.requesterName.toLowerCase().includes(q))
+          (r.requesterName && r.requesterName.toLowerCase().includes(q)) ||
+          (r.department && r.department.toLowerCase().includes(q))
       );
     }
     if (filter?.fromDate) {
@@ -235,12 +297,19 @@ export class RequestService {
     approvedBy: string,
     comments?: string
   ): Promise<void> {
+    const existing = await this.getRequest(id);
+    const prev = existing.status;
     await this.parentRepo.update(id, {
       status: RequestStatus.Approved,
       approvedBy,
       approvedDate: new Date(),
       comments: comments || undefined
     });
+    await NotificationService.notifyStatusChange(
+      { ...existing, status: RequestStatus.Approved, approvedBy, approvedDate: new Date() },
+      prev,
+      approvedBy
+    );
   }
 
   public static async rejectRequest(
@@ -248,17 +317,53 @@ export class RequestService {
     approvedBy: string,
     rejectionReason: string
   ): Promise<void> {
+    const existing = await this.getRequest(id);
+    const prev = existing.status;
     await this.parentRepo.update(id, {
       status: RequestStatus.Rejected,
       approvedBy,
       approvedDate: new Date(),
       rejectionReason
     });
+    await NotificationService.notifyStatusChange(
+      {
+        ...existing,
+        status: RequestStatus.Rejected,
+        approvedBy,
+        rejectionReason,
+        approvedDate: new Date()
+      },
+      prev,
+      approvedBy
+    );
   }
 
-  // ---------- Child items ----------
+  /** Bulk status update for multi-select dashboard actions */
+  public static async bulkUpdateStatus(
+    ids: string[],
+    status: RequestStatus,
+    actorName: string
+  ): Promise<{ success: number; failed: number }> {
+    let success = 0;
+    let failed = 0;
+    for (const id of ids) {
+      try {
+        await this.parentRepo.update(id, { status });
+        success++;
+      } catch {
+        failed++;
+      }
+    }
+    if (success > 0) {
+      await NotificationService.notifyBulkStatusChange(ids, status, actorName);
+    }
+    return { success, failed };
+  }
 
-  public static async getChildItems(requestType: RequestType, requestId: string): Promise<IChildItem[]> {
+  public static async getChildItems(
+    requestType: RequestType,
+    requestId: string
+  ): Promise<IChildItem[]> {
     const config = getRequestTypeConfig(requestType);
     if (!config.supportsChildren || !config.childListTitle) {
       return [];
@@ -269,7 +374,7 @@ export class RequestService {
 
   public static async createChildItem(
     requestType: RequestType,
-    item: Partial<IChildItem>
+    item: Partial<IChildItem> & Record<string, any>
   ): Promise<IChildItem> {
     const config = getRequestTypeConfig(requestType);
     if (!config.childListTitle) {
@@ -277,7 +382,7 @@ export class RequestService {
     }
     const qty = item.quantity || 1;
     const unitPrice = item.unitPrice || 0;
-    const payload: Partial<IChildItem> = {
+    const payload: Partial<IChildItem> & Record<string, any> = {
       ...item,
       totalPrice: item.totalPrice !== undefined ? item.totalPrice : qty * unitPrice,
       status: item.status || ItemStatus.Pending,
@@ -285,23 +390,25 @@ export class RequestService {
     };
     const repo = this.getChildRepo(config.childListTitle);
     const result = await repo.create(payload);
-    return { ...payload, id: result.ID?.toString(), requestId: item.requestId || '', itemName: item.itemName || '' } as IChildItem;
+    return {
+      ...payload,
+      id: result.ID?.toString(),
+      requestId: item.requestId || '',
+      itemName: item.itemName || ''
+    } as IChildItem;
   }
 
   public static async updateChildItem(
     requestType: RequestType,
     itemId: string,
-    item: Partial<IChildItem>
+    item: Partial<IChildItem> & Record<string, any>
   ): Promise<void> {
     const config = getRequestTypeConfig(requestType);
     if (!config.childListTitle) {
       throw new Error(`Request type ${requestType} does not support child items`);
     }
-    if (item.quantity !== undefined || item.unitPrice !== undefined) {
-      // caller should pass totalPrice when needed; we recompute if both present
-      if (item.quantity !== undefined && item.unitPrice !== undefined) {
-        item.totalPrice = item.quantity * item.unitPrice;
-      }
+    if (item.quantity !== undefined && item.unitPrice !== undefined) {
+      item.totalPrice = item.quantity * item.unitPrice;
     }
     const repo = this.getChildRepo(config.childListTitle);
     await repo.update(itemId, item);
@@ -316,26 +423,44 @@ export class RequestService {
     await repo.delete(itemId);
   }
 
-  /** KPI helpers for dashboard */
   public static async getDashboardStats(): Promise<{
     total: number;
     pending: number;
     approved: number;
     rejected: number;
     inProgress: number;
+    overdue: number;
+    totalBudget: number;
     byType: Record<string, number>;
   }> {
     const all = await this.getRequests();
     const byType: Record<string, number> = {};
+    let totalBudget = 0;
+    const now = Date.now();
+    let overdue = 0;
     all.forEach((r) => {
       byType[r.requestType] = (byType[r.requestType] || 0) + 1;
+      totalBudget += r.totalBudget || 0;
+      if (
+        r.targetDeliveryDate &&
+        r.targetDeliveryDate.getTime() < now &&
+        r.status !== RequestStatus.Completed &&
+        r.status !== RequestStatus.Cancelled &&
+        r.status !== RequestStatus.Rejected
+      ) {
+        overdue++;
+      }
     });
     return {
       total: all.length,
-      pending: all.filter((r) => r.status === RequestStatus.Pending || r.status === RequestStatus.Draft).length,
+      pending: all.filter(
+        (r) => r.status === RequestStatus.Pending || r.status === RequestStatus.Draft
+      ).length,
       approved: all.filter((r) => r.status === RequestStatus.Approved).length,
       rejected: all.filter((r) => r.status === RequestStatus.Rejected).length,
       inProgress: all.filter((r) => r.status === RequestStatus.InProgress).length,
+      overdue,
+      totalBudget,
       byType
     };
   }
