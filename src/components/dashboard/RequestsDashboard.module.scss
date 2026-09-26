@@ -1,0 +1,39 @@
+.container {
+  padding: 16px;
+  max-width: 1200px;
+}
+
+.title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.kpiRow {
+  margin-bottom: 8px;
+}
+
+.kpi {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 100px;
+  padding: 12px 16px;
+  background: #f3f2f1;
+  border-radius: 4px;
+  gap: 4px;
+}
+
+.linkButton {
+  background: none;
+  border: none;
+  color: #0078d4;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+  font-size: inherit;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}

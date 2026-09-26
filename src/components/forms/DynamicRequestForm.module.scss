@@ -1,0 +1,29 @@
+.formContainer {
+  padding: 16px;
+  max-width: 720px;
+}
+
+.subtitle {
+  margin: 0 0 8px;
+  color: #605e5c;
+  font-size: 13px;
+}
+
+.fileItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.fileLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #0078d4;
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
