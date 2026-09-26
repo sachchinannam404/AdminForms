@@ -23,7 +23,10 @@ import {
 } from '../../models/IAdminRequest';
 import { getRequestTypeConfig, IFormField } from '../../config/requestTypeRegistry';
 import { RequestService } from '../../services/RequestService';
-import { AttachmentService } from '../../services/attachmentService';
+import { validateRequiredFields, validateEmail } from '../../utils/validation';
+import { useAttachments } from '../../hooks/useAttachments';
+import { PeopleField } from '../common/PeopleField';
+import { exceedsApprovalThreshold } from '../../config/requestTypeRegistry';
 import styles from './DynamicRequestForm.module.scss';
 
 export interface IDynamicRequestFormProps {
@@ -47,7 +50,15 @@ export const DynamicRequestForm: React.FC<IDynamicRequestFormProps> = (props) =>
   const [isLoading, setIsLoading] = React.useState(!!props.requestId);
   const [isSaving, setIsSaving] = React.useState(false);
   const [message, setMessage] = React.useState<{ text: string; type: MessageBarType } | null>(null);
-  const [selectedFiles, setSelectedFiles] = React.useState<File[]>([]);
+  const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({});
+
+  const {
+    attachments,
+    pendingFiles,
+    setPendingFiles,
+    uploadPending,
+    isLoading: attachmentsLoading
+  } = useAttachments('Admin Requests', props.requestId);
 
   React.useEffect(() => {
     if (!props.requestId) return;
@@ -55,8 +66,7 @@ export const DynamicRequestForm: React.FC<IDynamicRequestFormProps> = (props) =>
       setIsLoading(true);
       try {
         const data = await RequestService.getRequest(props.requestId!);
-        const attachments = await AttachmentService.getRequestAttachments(props.requestId!);
-        setRequest({ ...data, attachments });
+        setRequest({ ...data });
       } catch {
         setMessage({ text: 'Error loading request', type: MessageBarType.error });
       } finally {
@@ -73,6 +83,11 @@ export const DynamicRequestForm: React.FC<IDynamicRequestFormProps> = (props) =>
   };
 
   const setValue = (field: IFormField, value: any) => {
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      delete next[field.key];
+      return next;
+    });
     setRequest((prev) => {
       if (field.inDetails) {
         return {
@@ -85,13 +100,18 @@ export const DynamicRequestForm: React.FC<IDynamicRequestFormProps> = (props) =>
   };
 
   const validate = (): boolean => {
-    for (const field of config.formFields) {
-      if (!field.required) continue;
-      const v = getValue(field);
-      if (v === undefined || v === null || v === '') {
-        setMessage({ text: `Please fill in required field: ${field.label}`, type: MessageBarType.warning });
-        return false;
-      }
+    const result = validateRequiredFields(config.formFields, getValue);
+    const errors = { ...result.errors };
+    if (request.requesterEmail && !validateEmail(request.requesterEmail)) {
+      errors.requesterEmail = 'Requester email must be valid';
+    }
+    setFieldErrors(errors);
+    if (Object.keys(errors).length) {
+      setMessage({
+        text: result.firstError || errors.requesterEmail || 'Please fix validation errors',
+        type: MessageBarType.warning
+      });
+      return false;
     }
     return true;
   };
@@ -108,18 +128,11 @@ export const DynamicRequestForm: React.FC<IDynamicRequestFormProps> = (props) =>
         saved = await RequestService.createRequest(request);
       }
 
-      if (selectedFiles.length && saved.id) {
-        for (const file of selectedFiles) {
-          try {
-            await AttachmentService.uploadRequestAttachment(saved.id, file);
-          } catch (e) {
-            console.error(e);
-          }
-        }
+      if (pendingFiles.length && saved.id) {
+        await uploadPending(saved.id);
       }
 
       setMessage({ text: 'Request saved successfully', type: MessageBarType.success });
-      setSelectedFiles([]);
       if (props.onSave) props.onSave(saved);
     } catch {
       setMessage({ text: 'Error saving request', type: MessageBarType.error });
@@ -130,17 +143,21 @@ export const DynamicRequestForm: React.FC<IDynamicRequestFormProps> = (props) =>
 
   const renderField = (field: IFormField) => {
     const value = getValue(field);
+    const err = fieldErrors[field.key];
+    const requiredMark = field.required ? ' *' : '';
+
     switch (field.type) {
       case 'multiline':
         return (
           <TextField
             key={field.key}
-            label={field.label}
+            label={`${field.label}${requiredMark}`}
             multiline
             rows={3}
             required={field.required}
             placeholder={field.placeholder}
             value={value || ''}
+            errorMessage={err}
             onChange={(_, v) => setValue(field, v)}
           />
         );
@@ -149,11 +166,12 @@ export const DynamicRequestForm: React.FC<IDynamicRequestFormProps> = (props) =>
         return (
           <TextField
             key={field.key}
-            label={field.label}
+            label={`${field.label}${requiredMark}`}
             type="number"
             required={field.required}
             placeholder={field.placeholder}
             value={value != null ? String(value) : ''}
+            errorMessage={err}
             onChange={(_, v) => setValue(field, v ? parseFloat(v) : undefined)}
           />
         );
@@ -161,19 +179,21 @@ export const DynamicRequestForm: React.FC<IDynamicRequestFormProps> = (props) =>
         return (
           <DatePicker
             key={field.key}
-            label={field.label}
+            label={`${field.label}${requiredMark}`}
             value={value ? new Date(value) : undefined}
             onSelectDate={(d) => setValue(field, d)}
+            isRequired={field.required}
           />
         );
       case 'dropdown':
         return (
           <Dropdown
             key={field.key}
-            label={field.label}
+            label={`${field.label}${requiredMark}`}
             required={field.required}
             options={(field.options || []) as IDropdownOption[]}
             selectedKey={value}
+            errorMessage={err}
             onChange={(_, opt) => setValue(field, opt?.key)}
           />
         );
@@ -181,11 +201,12 @@ export const DynamicRequestForm: React.FC<IDynamicRequestFormProps> = (props) =>
         return (
           <TextField
             key={field.key}
-            label={field.label}
+            label={`${field.label}${requiredMark}`}
             type="email"
             required={field.required}
             placeholder={field.placeholder}
             value={value || ''}
+            errorMessage={err}
             onChange={(_, v) => setValue(field, v)}
           />
         );
@@ -202,19 +223,22 @@ export const DynamicRequestForm: React.FC<IDynamicRequestFormProps> = (props) =>
         return (
           <TextField
             key={field.key}
-            label={field.label}
+            label={`${field.label}${requiredMark}`}
             required={field.required}
             placeholder={field.placeholder}
             value={value || ''}
+            errorMessage={err}
             onChange={(_, v) => setValue(field, v)}
           />
         );
     }
   };
 
-  if (isLoading) {
+  if (isLoading || attachmentsLoading) {
     return <Spinner size={SpinnerSize.large} label="Loading request…" />;
   }
+
+  const thresholdWarn = exceedsApprovalThreshold(props.requestType, request.totalBudget);
 
   return (
     <Stack className={styles.formContainer} tokens={{ childrenGap: 12 }}>
@@ -227,24 +251,31 @@ export const DynamicRequestForm: React.FC<IDynamicRequestFormProps> = (props) =>
         </MessageBar>
       )}
 
+      {thresholdWarn && (
+        <MessageBar messageBarType={MessageBarType.warning}>
+          Budget meets or exceeds the dual-approval threshold
+          {config.approvalThreshold != null ? ` ($${config.approvalThreshold})` : ''}.
+        </MessageBar>
+      )}
+
       <Stack tokens={{ childrenGap: 12 }}>
         {config.formFields.map(renderField)}
 
-        <Stack horizontal tokens={{ childrenGap: 10 }}>
-          <TextField
-            label="Requester Name"
-            value={request.requesterName || ''}
-            onChange={(_, v) => setRequest((p) => ({ ...p, requesterName: v }))}
-            styles={{ root: { flex: 1 } }}
-          />
-          <TextField
-            label="Requester Email"
-            type="email"
-            value={request.requesterEmail || ''}
-            onChange={(_, v) => setRequest((p) => ({ ...p, requesterEmail: v }))}
-            styles={{ root: { flex: 1 } }}
-          />
-        </Stack>
+        <PeopleField
+          label="Requester"
+          value={{
+            displayName: request.requesterName || '',
+            email: request.requesterEmail
+          }}
+          onChange={(p) =>
+            setRequest((prev) => ({
+              ...prev,
+              requesterName: p.displayName,
+              requesterEmail: p.email
+            }))
+          }
+          errorMessage={fieldErrors.requesterEmail}
+        />
 
         <div>
           <Label>Attachments</Label>
@@ -252,19 +283,25 @@ export const DynamicRequestForm: React.FC<IDynamicRequestFormProps> = (props) =>
             type="file"
             multiple
             onChange={(e) => {
-              if (e.target.files) setSelectedFiles(Array.from(e.target.files));
+              if (e.target.files) setPendingFiles(Array.from(e.target.files));
             }}
           />
-          {selectedFiles.map((f) => (
+          {pendingFiles.map((f) => (
             <div key={f.name} className={styles.fileItem}>
-              <Icon iconName="Document" /> {f.name}
+              <Icon iconName="Document" /> {f.name} (pending)
             </div>
           ))}
-          {request.attachments && request.attachments.length > 0 && (
+          {attachments.length > 0 && (
             <Stack tokens={{ childrenGap: 4 }}>
-              <Label>Existing</Label>
-              {request.attachments.map((a) => (
-                <a key={a.id} href={a.fileUrl} target="_blank" rel="noopener noreferrer" className={styles.fileLink}>
+              <Label>Existing attachments</Label>
+              {attachments.map((a) => (
+                <a
+                  key={a.id}
+                  href={a.fileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={styles.fileLink}
+                >
                   <Icon iconName="Document" /> {a.fileName}
                 </a>
               ))}

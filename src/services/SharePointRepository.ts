@@ -1,5 +1,5 @@
 /**
- * Generic SharePoint list repository – reusable for any list + entity mapping
+ * Generic SharePoint list repository – list name + field maps, pagination, soft-delete support
  */
 
 import { sp } from '@pnp/sp';
@@ -9,6 +9,13 @@ import '@pnp/sp/items';
 
 export type EntityMapper<T> = (item: any) => T;
 export type SharePointMapper<T> = (entity: Partial<T>) => Record<string, any>;
+
+export interface IPagedResult<T> {
+  items: T[];
+  hasNext: boolean;
+  /** Opaque skip token / next skip index for simple top+skip paging */
+  nextSkip: number;
+}
 
 export class SharePointRepository<T> {
   constructor(
@@ -22,10 +29,14 @@ export class SharePointRepository<T> {
     sp.setup({ spfxContext: context });
   }
 
+  public getListTitle(): string {
+    return this.listTitle;
+  }
+
   public async getById(id: string): Promise<T> {
     try {
       let query = sp.web.lists.getByTitle(this.listTitle).items.getById(parseInt(id, 10));
-      if (this.defaultSelect && this.defaultSelect.length) {
+      if (this.defaultSelect?.length) {
         query = query.select(...this.defaultSelect) as any;
       }
       const item = await query.get();
@@ -44,7 +55,7 @@ export class SharePointRepository<T> {
   ): Promise<T[]> {
     try {
       let query = sp.web.lists.getByTitle(this.listTitle).items.top(top);
-      if (this.defaultSelect && this.defaultSelect.length) {
+      if (this.defaultSelect?.length) {
         query = query.select(...this.defaultSelect) as any;
       }
       if (filter) {
@@ -56,6 +67,50 @@ export class SharePointRepository<T> {
     } catch (error) {
       console.error(`Error getting items from ${this.listTitle}:`, error);
       return [];
+    }
+  }
+
+  /**
+   * Simple top + skip pagination (SharePoint list items).
+   * Prefer smaller page sizes (25–50) for large lists.
+   */
+  public async getPaged(
+    options: {
+      filter?: string;
+      orderBy?: string;
+      ascending?: boolean;
+      top?: number;
+      skip?: number;
+    } = {}
+  ): Promise<IPagedResult<T>> {
+    const top = options.top ?? 50;
+    const skip = options.skip ?? 0;
+    const orderBy = options.orderBy ?? 'Created';
+    const ascending = options.ascending ?? false;
+
+    try {
+      let query = sp.web.lists.getByTitle(this.listTitle).items.top(top + 1);
+      if (skip > 0) {
+        query = query.skip(skip) as any;
+      }
+      if (this.defaultSelect?.length) {
+        query = query.select(...this.defaultSelect) as any;
+      }
+      if (options.filter) {
+        query = query.filter(options.filter) as any;
+      }
+      query = query.orderBy(orderBy, ascending) as any;
+      const raw = await query.get();
+      const hasNext = raw.length > top;
+      const page = hasNext ? raw.slice(0, top) : raw;
+      return {
+        items: page.map((item: any) => this.mapToEntity(item)),
+        hasNext,
+        nextSkip: skip + page.length
+      };
+    } catch (error) {
+      console.error(`Error paging ${this.listTitle}:`, error);
+      return { items: [], hasNext: false, nextSkip: skip };
     }
   }
 
@@ -73,11 +128,8 @@ export class SharePointRepository<T> {
   public async update(id: string, entity: Partial<T>): Promise<void> {
     try {
       const data = this.mapToSharePoint(entity);
-      // Remove undefined / empty keys that should not overwrite
       Object.keys(data).forEach((k) => {
-        if (data[k] === undefined) {
-          delete data[k];
-        }
+        if (data[k] === undefined) delete data[k];
       });
       await sp.web.lists
         .getByTitle(this.listTitle)
@@ -101,7 +153,20 @@ export class SharePointRepository<T> {
     }
   }
 
-  public getListTitle(): string {
-    return this.listTitle;
+  /** Soft-delete: set Status = Cancelled (or provided status) instead of hard delete */
+  public async softDelete(
+    id: string,
+    statusField: string = 'Status',
+    statusValue: string = 'Cancelled'
+  ): Promise<void> {
+    try {
+      await sp.web.lists
+        .getByTitle(this.listTitle)
+        .items.getById(parseInt(id, 10))
+        .update({ [statusField]: statusValue });
+    } catch (error) {
+      console.error(`Error soft-deleting item ${id} in ${this.listTitle}:`, error);
+      throw error;
+    }
   }
 }
