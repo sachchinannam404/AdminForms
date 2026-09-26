@@ -1,5 +1,6 @@
 /**
- * Top-level shell: Dashboard ↔ Create/Edit ↔ Detail (approval, children, audit) ↔ Reports
+ * Top-level shell with ErrorBoundary, toast, and optional context provider.
+ * Flow: Dashboard → Form → Detail (approval, children, audit) → Reports
  */
 
 import * as React from 'react';
@@ -10,31 +11,38 @@ import { ApprovalPanel } from './workflow/ApprovalPanel';
 import { AuditHistory } from './workflow/AuditHistory';
 import { ChildItemsList } from './lists/ChildItemsList';
 import { ReportingPanel } from './reporting/ReportingPanel';
+import { ErrorBoundary } from './common/ErrorBoundary';
+import { MessageToastProvider } from './common/MessageToast';
+import { AdminFormsProvider } from '../context/AdminFormsContext';
 import { IAdminRequest, RequestType } from '../models/IAdminRequest';
 import { getRequestTypeConfig, exceedsApprovalThreshold } from '../config/requestTypeRegistry';
 import { NotificationService } from '../services/NotificationService';
+import { RequestService } from '../services/RequestService';
 
 export interface IAdminFormsAppProps {
   currentUserName?: string;
   currentUserEmail?: string;
-  /** Optional Power Automate HTTP webhook for status notifications */
+  spfxContext?: any;
   powerAutomateWebhookUrl?: string;
 }
 
 type ViewMode = 'dashboard' | 'form' | 'detail' | 'reporting';
 
-export const AdminFormsApp: React.FC<IAdminFormsAppProps> = (props) => {
+const AdminFormsAppInner: React.FC<IAdminFormsAppProps> = (props) => {
   const [view, setView] = React.useState<ViewMode>('dashboard');
   const [activeType, setActiveType] = React.useState<RequestType>(RequestType.Stationery);
   const [activeRequest, setActiveRequest] = React.useState<IAdminRequest | undefined>();
 
   React.useEffect(() => {
+    if (props.spfxContext) {
+      RequestService.initialize(props.spfxContext);
+    }
     if (props.powerAutomateWebhookUrl) {
       NotificationService.configure({
         powerAutomateWebhookUrl: props.powerAutomateWebhookUrl
       });
     }
-  }, [props.powerAutomateWebhookUrl]);
+  }, [props.spfxContext, props.powerAutomateWebhookUrl]);
 
   const openCreate = (type: RequestType) => {
     setActiveType(type);
@@ -95,16 +103,17 @@ export const AdminFormsApp: React.FC<IAdminFormsAppProps> = (props) => {
           <MessageBar messageBarType={MessageBarType.warning}>
             Amount meets or exceeds the approval threshold
             {config.approvalThreshold != null ? ` ($${config.approvalThreshold})` : ''}. Dual
-            approval is recommended for this request type.
+            approval is recommended.
           </MessageBar>
         )}
 
-        {activeRequest.requestType === 'Travel' && activeRequest.details?.actualCost != null && (
-          <MessageBar messageBarType={MessageBarType.info}>
-            Travel budget vs actual: estimated ${activeRequest.totalBudget ?? 0} / actual $
-            {activeRequest.details.actualCost}
-          </MessageBar>
-        )}
+        {activeRequest.requestType === RequestType.Travel &&
+          activeRequest.details?.actualCost != null && (
+            <MessageBar messageBarType={MessageBarType.info}>
+              Travel budget vs actual: estimated ${activeRequest.totalBudget ?? 0} / actual $
+              {activeRequest.details.actualCost}
+            </MessageBar>
+          )}
 
         <ApprovalPanel
           request={activeRequest}
@@ -112,7 +121,19 @@ export const AdminFormsApp: React.FC<IAdminFormsAppProps> = (props) => {
           onComplete={(updated) => setActiveRequest(updated)}
         />
 
-        <DefaultButton text="Edit request" onClick={() => setView('form')} />
+        <Stack horizontal tokens={{ childrenGap: 8 }}>
+          <DefaultButton text="Edit request" onClick={() => setView('form')} />
+          {activeRequest.id && activeRequest.status !== 'Cancelled' && (
+            <DefaultButton
+              text="Archive (soft delete)"
+              onClick={async () => {
+                if (!activeRequest.id) return;
+                await RequestService.archiveRequest(activeRequest.id);
+                setActiveRequest({ ...activeRequest, status: 'Cancelled' as any });
+              }}
+            />
+          )}
+        </Stack>
 
         {config.supportsChildren && activeRequest.id && (
           <ChildItemsList
@@ -134,5 +155,26 @@ export const AdminFormsApp: React.FC<IAdminFormsAppProps> = (props) => {
       onOpenRequest={openRequest}
       onOpenReporting={() => setView('reporting')}
     />
+  );
+};
+
+export const AdminFormsApp: React.FC<IAdminFormsAppProps> = (props) => {
+  return (
+    <ErrorBoundary>
+      <AdminFormsProvider
+        spfxContext={props.spfxContext}
+        displayName={props.currentUserName}
+        email={props.currentUserEmail}
+        notificationConfig={
+          props.powerAutomateWebhookUrl
+            ? { powerAutomateWebhookUrl: props.powerAutomateWebhookUrl }
+            : undefined
+        }
+      >
+        <MessageToastProvider>
+          <AdminFormsAppInner {...props} />
+        </MessageToastProvider>
+      </AdminFormsProvider>
+    </ErrorBoundary>
   );
 };

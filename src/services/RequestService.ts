@@ -118,7 +118,6 @@ function mapChildItem(item: any): IChildItem {
       extra = undefined;
     }
   }
-  // Promote known extra keys from form (serial, warranty, actualAmount) stored in ExtraJson
   return {
     id: item.ID?.toString(),
     requestId: item.RequestId,
@@ -161,7 +160,6 @@ function mapToSharePointChild(entity: Partial<IChildItem> & Record<string, any>)
   if (entity.actualDeliveryDate !== undefined) data.ActualDeliveryDate = entity.actualDeliveryDate;
   if (entity.remarks !== undefined) data.Remarks = entity.remarks;
 
-  // Fold non-standard form fields into ExtraJson
   const known =
     'requestId|itemName|category|quantity|unit|unitPrice|totalPrice|description|status|vendorName|vendorEmail|expectedDeliveryDate|actualDeliveryDate|remarks|extra|id|attachments|created|modified'.split(
       '|'
@@ -237,8 +235,14 @@ export class RequestService {
     await this.parentRepo.update(id, request);
   }
 
+  /** Hard delete – prefer archiveRequest for production */
   public static async deleteRequest(id: string): Promise<void> {
     await this.parentRepo.delete(id);
+  }
+
+  /** Soft-delete / archive – sets Status = Cancelled */
+  public static async archiveRequest(id: string): Promise<void> {
+    await this.parentRepo.softDelete(id, 'Status', RequestStatus.Cancelled);
   }
 
   public static async getRequests(filter?: IAdminRequestFilter): Promise<IAdminRequest[]> {
@@ -292,6 +296,42 @@ export class RequestService {
     return items;
   }
 
+  public static async getRequestsPaged(
+    filter?: IAdminRequestFilter,
+    top: number = 50,
+    skip: number = 0
+  ): Promise<{ items: IAdminRequest[]; hasNext: boolean; nextSkip: number }> {
+    // Build OData filter (client search/date applied after if needed)
+    const parts: string[] = [];
+    if (filter?.status) {
+      const statuses = Array.isArray(filter.status) ? filter.status : [filter.status];
+      if (statuses.length === 1) parts.push(`Status eq '${statuses[0]}'`);
+      else if (statuses.length > 1)
+        parts.push(`(${statuses.map((s) => `Status eq '${s}'`).join(' or ')})`);
+    }
+    if (filter?.requestType) {
+      const types = Array.isArray(filter.requestType) ? filter.requestType : [filter.requestType];
+      if (types.length === 1) parts.push(`RequestType eq '${types[0]}'`);
+      else if (types.length > 1)
+        parts.push(`(${types.map((t) => `RequestType eq '${t}'`).join(' or ')})`);
+    }
+    if (filter?.department) {
+      parts.push(`Department eq '${filter.department.replace(/'/g, "''")}'`);
+    }
+    if (filter?.priority) parts.push(`Priority eq '${filter.priority}'`);
+    if (filter?.requesterEmail) {
+      parts.push(`RequesterEmail eq '${filter.requesterEmail.replace(/'/g, "''")}'`);
+    }
+    const odataFilter = parts.length ? parts.join(' and ') : undefined;
+    return this.parentRepo.getPaged({
+      filter: odataFilter,
+      orderBy: 'Created',
+      ascending: false,
+      top,
+      skip
+    });
+  }
+
   public static async approveRequest(
     id: string,
     approvedBy: string,
@@ -338,7 +378,6 @@ export class RequestService {
     );
   }
 
-  /** Bulk status update for multi-select dashboard actions */
   public static async bulkUpdateStatus(
     ids: string[],
     status: RequestStatus,
@@ -421,6 +460,15 @@ export class RequestService {
     }
     const repo = this.getChildRepo(config.childListTitle);
     await repo.delete(itemId);
+  }
+
+  public static async archiveChildItem(requestType: RequestType, itemId: string): Promise<void> {
+    const config = getRequestTypeConfig(requestType);
+    if (!config.childListTitle) {
+      throw new Error(`Request type ${requestType} does not support child items`);
+    }
+    const repo = this.getChildRepo(config.childListTitle);
+    await repo.softDelete(itemId, 'Status', ItemStatus.Cancelled);
   }
 
   public static async getDashboardStats(): Promise<{
